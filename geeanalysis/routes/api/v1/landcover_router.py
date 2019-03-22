@@ -1,0 +1,48 @@
+"""API ROUTER"""
+
+import logging
+
+from flask import jsonify, request, Blueprint
+from geeanalysis.routes.api import error, get_layer, return_pixel_count
+from geeanalysis.services.analysis.landcover_service import LandcoverService
+from geeanalysis.validators import validate_geostore
+from geeanalysis.middleware import get_geo_by_hash, get_geo_by_use, get_geo_by_wdpa, \
+    get_geo_by_national, get_geo_by_subnational
+from geeanalysis.serializers import serialize_landcover
+from geeanalysis.utils.landcover_lookup import get_landcover_types
+
+landcover_endpoints_v1 = Blueprint('landcover_endpoints_v1', __name__)
+
+
+def analyze(geojson, area_ha):
+    """Analyze landcover"""
+
+    layer = get_layer()
+    count_pixels = return_pixel_count()
+
+    if not layer:
+        return error(status=400, detail='Layer type must ' \
+                    'be one of {}'.format(', '.join(get_landcover_types())))
+
+    if not geojson:
+        return error(status=400, detail='Geojson is required')
+
+    try:
+        data = LandcoverService.analyze(geojson=geojson, layer=layer, count_pixels=count_pixels)
+    except Exception as e:
+        logging.error('[ROUTER]: '+str(e))
+        return error(status=500, detail='Generic Error')
+
+    data['area_ha'] = area_ha
+    logging.info(data)
+
+    return jsonify(data=serialize_landcover(data, layer)), 200
+
+
+@landcover_endpoints_v1.route('/', strict_slashes=False, methods=['GET', 'POST'])
+@validate_geostore
+@get_geo_by_hash
+def get_by_geostore(geojson, area_ha):
+    """Analyze by geostore"""
+    logging.info('[ROUTER]: Getting histogram by world')
+    return analyze(geojson, area_ha)
